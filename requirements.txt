@@ -1,8 +1,8 @@
 fastapi
 uvicorn
-sentinelhub
+earthengine-api
 rasterio
 numpy
-openai
+google-generativeai
 python-dotenv
 fpdf2
