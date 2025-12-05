@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sentinelhub
+rasterio
+numpy
+openai
+python-dotenv
+fpdf2
