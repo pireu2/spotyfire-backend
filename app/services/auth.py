@@ -110,6 +110,7 @@ async def get_neon_auth_user(
             raw=row[3] if row[3] else None,
         )
     except Exception:
+        await db.rollback()
         return None
 
 
