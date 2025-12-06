@@ -6,3 +6,9 @@ numpy
 google-generativeai
 python-dotenv
 fpdf2
+sqlalchemy
+asyncpg
+psycopg2-binary
+python-jose[cryptography]
+passlib[bcrypt]
+httpx

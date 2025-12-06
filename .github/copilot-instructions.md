@@ -34,6 +34,7 @@ Here is the **Backend Master Prompt**. Paste this into a new chat with an AI cod
 - **Logic:**
   - If `DEMO_MODE` is True: The `/analyze` endpoint ignores the specific coordinates and returns a **pre-calculated** perfect JSON response for the Galați/Vaslui flood event.
   - If `DEMO_MODE` is False: It actually tries to call the Sentinel Hub API.
+- **Rule**: Do not write any comments
 
 ### B. Directory Structure
 
