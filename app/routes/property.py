@@ -9,10 +9,37 @@ import uuid
 
 from app.database import get_db
 from app.db_models import Property, Geometry
-from app.models import PropertyCreate, PropertyUpdate, PropertyResponse, GeometryResponse
+from app.models import PropertyCreate, PropertyUpdate, PropertyResponse, GeometryResponse, CadastralLookupRequest, CadastralLookupResponse
 from app.services.auth import get_current_user, NeonAuthUser
+from app.services.ancpi import fetch_cadastral_data
 
 router = APIRouter(prefix="/api/properties", tags=["Properties"])
+
+
+@router.post("/cadastral-lookup", response_model=CadastralLookupResponse)
+async def lookup_cadastral(
+    data: CadastralLookupRequest,
+    user: NeonAuthUser = Depends(get_current_user),
+):
+    """
+    Lookup cadastral data from ANCPI by cadastral number.
+    Returns geometry and location information.
+    """
+    result = await fetch_cadastral_data(data.numar_cadastral)
+    
+    if not result:
+        raise HTTPException(status_code=404, detail="Numărul cadastral nu a fost găsit")
+    
+    return CadastralLookupResponse(
+        numar_cadastral=result.numar_cadastral,
+        geometry_type=result.geometry_type,
+        coordinates=result.coordinates,
+        center_lat=result.center_lat,
+        center_lng=result.center_lng,
+        area_ha=result.area_ha,
+        locality=result.locality,
+        county=result.county,
+    )
 
 
 def geometry_to_response(geometry: Geometry) -> GeometryResponse:

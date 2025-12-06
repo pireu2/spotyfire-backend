@@ -4,6 +4,22 @@ from typing import Optional, List
 from datetime import datetime
 
 
+# === Cadastral Models ===
+class CadastralLookupRequest(BaseModel):
+    numar_cadastral: str = Field(..., description="Cadastral number to lookup")
+
+
+class CadastralLookupResponse(BaseModel):
+    numar_cadastral: str
+    geometry_type: str
+    coordinates: list
+    center_lat: float
+    center_lng: float
+    area_ha: float
+    locality: str
+    county: str
+
+
 # === Geometry & Property Models ===
 class CoordinatePoint(BaseModel):
     lat: float
