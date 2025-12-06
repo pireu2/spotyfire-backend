@@ -20,6 +20,7 @@ from app.data.mocks import DEMO_MODE, MOCK_ANALYSIS_RESPONSE, MOCK_CHAT_CONTEXT
 from app.services.ai_agent import chat_with_agent
 from app.database import init_db
 from app.routes.user import router as user_router
+from app.routes.property import router as property_router
 from app.services.auth import get_current_user, NeonAuthUser
 import app.db_models  # noqa: F401 - Import models so SQLAlchemy creates tables
 
@@ -51,6 +52,7 @@ os.makedirs("static", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(user_router)
+app.include_router(property_router)
 
 
 @app.get("/")

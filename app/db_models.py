@@ -3,12 +3,54 @@ Database models for SpotyFire.
 Neon Auth automatically creates neon_auth.users_sync table for user data.
 We only need to create our own tables (claims, etc.) that reference users.
 """
-from sqlalchemy import Column, String, Float, DateTime, Text, JSON
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Float, DateTime, Text, JSON, Integer, ForeignKey, Enum
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
+import enum
 
 from app.database import Base
+
+
+class GeometryType(str, enum.Enum):
+    POLYGON = "Polygon"
+    MULTI_POLYGON = "MultiPolygon"
+    POINT = "Point"
+
+
+class Geometry(Base):
+    __tablename__ = "geometries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = Column(String(50), nullable=False, default=GeometryType.POLYGON.value)
+    coordinates = Column(JSON, nullable=False)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Property(Base):
+    __tablename__ = "properties"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(255), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    
+    geometry_id = Column(UUID(as_uuid=True), ForeignKey("geometries.id"), nullable=False)
+    geometry = relationship("Geometry", backref="properties", lazy="joined")
+    
+    crop_type = Column(String(100), nullable=True)
+    area_ha = Column(Float, nullable=True)
+    
+    center_lat = Column(Float, nullable=False)
+    center_lng = Column(Float, nullable=False)
+    
+    estimated_value = Column(Float, nullable=True)
+    risk_score = Column(Float, nullable=True, default=0.0)
+    
+    last_analysed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class Claim(Base):

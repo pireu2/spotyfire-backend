@@ -1,7 +1,64 @@
 """Pydantic models for request/response schemas."""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
+
+
+# === Geometry & Property Models ===
+class CoordinatePoint(BaseModel):
+    lat: float
+    lng: float
+
+
+class GeometryCreate(BaseModel):
+    type: str = Field(default="Polygon", description="Geometry type: Polygon, MultiPolygon, Point")
+    coordinates: List[List[CoordinatePoint]] = Field(..., description="List of coordinate rings")
+
+
+class GeometryResponse(BaseModel):
+    id: str
+    type: str
+    coordinates: list
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PropertyCreate(BaseModel):
+    name: str = Field(..., description="Property name")
+    geometry: GeometryCreate = Field(..., description="Property boundary geometry")
+    crop_type: Optional[str] = Field(default=None, description="Type of crop grown")
+    area_ha: Optional[float] = Field(default=None, description="Area in hectares")
+    center_lat: float = Field(..., description="Center latitude for map zoom")
+    center_lng: float = Field(..., description="Center longitude for map zoom")
+    estimated_value: Optional[float] = Field(default=None, description="Estimated property value in EUR")
+
+
+class PropertyUpdate(BaseModel):
+    name: Optional[str] = None
+    crop_type: Optional[str] = None
+    area_ha: Optional[float] = None
+    estimated_value: Optional[float] = None
+
+
+class PropertyResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    geometry: GeometryResponse
+    crop_type: Optional[str]
+    area_ha: Optional[float]
+    center_lat: float
+    center_lng: float
+    estimated_value: Optional[float]
+    risk_score: Optional[float]
+    last_analysed_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 # === Analysis Models ===
