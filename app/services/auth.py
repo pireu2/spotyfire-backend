@@ -152,3 +152,13 @@ async def get_optional_user(
         )
     except HTTPException:
         return None
+
+
+async def get_current_user_id(
+    credentials: HTTPAuthorizationCredentials = Security(security),
+) -> str:
+    if not credentials:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token_user = await verify_stack_auth_token(credentials.credentials)
+    return token_user.id

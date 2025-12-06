@@ -3,7 +3,7 @@ Database models for SpotyFire.
 Neon Auth automatically creates neon_auth.users_sync table for user data.
 We only need to create our own tables (claims, etc.) that reference users.
 """
-from sqlalchemy import Column, String, Float, DateTime, Text, JSON, Integer, ForeignKey, Enum
+from sqlalchemy import Column, String, Float, DateTime, Text, JSON, Integer, ForeignKey, Enum, Date
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -79,3 +79,31 @@ class Claim(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SatelliteAnalysis(Base):
+    __tablename__ = "satellite_analyses"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id = Column(UUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
+    property = relationship("Property", backref="analyses")
+    
+    analysis_type = Column(String(50), nullable=False)
+    date_range_start = Column(Date, nullable=False)
+    date_range_end = Column(Date, nullable=False)
+    
+    damage_percent = Column(Float, nullable=True)
+    damaged_area_ha = Column(Float, nullable=True)
+    total_area_ha = Column(Float, nullable=True)
+    estimated_cost = Column(Float, nullable=True)
+    
+    ndvi_before = Column(Float, nullable=True)
+    ndvi_after = Column(Float, nullable=True)
+    burn_severity = Column(Float, nullable=True)
+    
+    overlay_image_b64 = Column(Text, nullable=True)
+    fire_points = Column(JSON, nullable=True)
+    
+    analysis_metadata = Column(JSON, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)

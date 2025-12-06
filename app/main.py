@@ -24,6 +24,7 @@ from app.database import init_db, get_db
 from app.db_models import Property
 from app.routes.user import router as user_router
 from app.routes.property import router as property_router
+from app.routes.satellite import router as satellite_router
 from app.services.auth import get_current_user, NeonAuthUser
 import app.db_models  # noqa: F401 - Import models so SQLAlchemy creates tables
 
@@ -56,6 +57,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(user_router)
 app.include_router(property_router)
+app.include_router(satellite_router, prefix="/api", tags=["satellite"])
 
 
 @app.get("/")
