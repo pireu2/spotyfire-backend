@@ -10,6 +10,8 @@ from datetime import datetime
 import os
 
 from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.models import (
     AnalyzeRequest, AnalyzeResponse,
@@ -18,7 +20,8 @@ from app.models import (
 )
 from app.data.mocks import DEMO_MODE, MOCK_ANALYSIS_RESPONSE, MOCK_CHAT_CONTEXT
 from app.services.ai_agent import chat_with_agent
-from app.database import init_db
+from app.database import init_db, get_db
+from app.db_models import Property
 from app.routes.user import router as user_router
 from app.routes.property import router as property_router
 from app.services.auth import get_current_user, NeonAuthUser
@@ -104,7 +107,11 @@ async def analyze_damage(request: AnalyzeRequest):
 
 # === Chat Endpoint ===
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, user: NeonAuthUser = Depends(get_current_user)):
+async def chat(
+    request: ChatRequest,
+    user: NeonAuthUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Chat with the AI Claims Adjuster (SpotyBot).
     
@@ -113,9 +120,30 @@ async def chat(request: ChatRequest, user: NeonAuthUser = Depends(get_current_us
     
     Requires authentication.
     """
-    context = request.context
-    if DEMO_MODE and not context:
-        context = MOCK_CHAT_CONTEXT
+    context = request.context or {}
+    
+    if DEMO_MODE and not request.context:
+        context = MOCK_CHAT_CONTEXT.copy()
+    
+    result = await db.execute(
+        select(Property).where(Property.user_id == user.id)
+    )
+    properties = result.scalars().all()
+    
+    if properties:
+        context['properties'] = [
+            {
+                'name': p.name,
+                'crop_type': p.crop_type,
+                'area_ha': p.area_ha,
+                'center_lat': p.center_lat,
+                'center_lng': p.center_lng,
+                'estimated_value': p.estimated_value,
+                'risk_score': p.risk_score,
+                'last_analysed_at': p.last_analysed_at.isoformat() if p.last_analysed_at else None,
+            }
+            for p in properties
+        ]
     
     result = await chat_with_agent(
         message=request.message,

@@ -45,7 +45,26 @@ def build_context_message(context: Optional[dict]) -> str:
     if not context:
         return ""
     
-    return f"""
+    context_parts = []
+    
+    if context.get('properties'):
+        properties = context.get('properties', [])
+        if properties:
+            context_parts.append("\nUSER'S REGISTERED PROPERTIES:")
+            for i, prop in enumerate(properties, 1):
+                estimated_value = prop.get('estimated_value')
+                value_str = f"€{estimated_value:,.2f}" if estimated_value else "N/A"
+                context_parts.append(f"""
+Property {i}: {prop.get('name', 'Unnamed')}
+- Location: {prop.get('center_lat', 'N/A')}, {prop.get('center_lng', 'N/A')}
+- Crop Type: {prop.get('crop_type') or 'Not specified'}
+- Area: {prop.get('area_ha') or 'N/A'} hectares
+- Estimated Value: {value_str}
+- Risk Score: {prop.get('risk_score', 0)}/100
+- Last Analyzed: {prop.get('last_analysed_at') or 'Never'}""")
+    
+    if context.get('claim_id'):
+        context_parts.append(f"""
 CURRENT DAMAGE ANALYSIS DATA:
 - Claim ID: {context.get('claim_id', 'N/A')}
 - Location: {context.get('location', 'N/A')}
@@ -54,12 +73,15 @@ CURRENT DAMAGE ANALYSIS DATA:
 - Damaged Area: {context.get('damaged_area_ha', 'N/A')} hectares
 - Damage Percentage: {context.get('damage_percent', 'N/A')}%
 - Value per Hectare: €{context.get('value_per_ha', 'N/A')}
-- Estimated Financial Loss: €{context.get('financial_loss', 'N/A'):,.2f}
+- Estimated Financial Loss: €{context.get('financial_loss', 0):,.2f}
 - Disaster Type: {context.get('disaster_type', 'N/A')}
-- Analysis Date: {context.get('analysis_date', 'N/A')}
-
-Use this data to provide accurate, personalized assistance to the farmer.
-"""
+- Analysis Date: {context.get('analysis_date', 'N/A')}""")
+    
+    if context_parts:
+        context_parts.append("\nUse this data to provide accurate, personalized assistance to the farmer.")
+        return "\n".join(context_parts)
+    
+    return ""
 
 
 def build_conversation_history(history: Optional[list]) -> list:
@@ -75,6 +97,89 @@ def build_conversation_history(history: Optional[list]) -> list:
             "parts": [msg.get("content", "")]
         })
     return formatted
+
+
+async def generate_ai_suggested_actions(
+    message: str,
+    response_text: str,
+    context: Optional[dict] = None
+) -> list[str]:
+    """Generate contextual action suggestions using AI."""
+    try:
+        model = genai.GenerativeModel(model_name=MODEL_NAME)
+        
+        has_properties = context and context.get('properties')
+        has_damage_data = context and context.get('claim_id')
+        
+        context_info = ""
+        if has_properties:
+            context_info += "Utilizatorul are proprietăți înregistrate. "
+        if has_damage_data:
+            context_info += "Există date de analiză a daunelor disponibile. "
+        if not has_properties and not has_damage_data:
+            context_info = "Utilizatorul nu are încă proprietăți sau analize."
+        
+        prompt = f"""Bazat pe conversația de mai jos, generează exact 3 acțiuni sugestive scurte în limba română pe care utilizatorul le-ar putea dori să le facă în continuare.
+
+Context: {context_info}
+
+Mesajul utilizatorului: {message}
+
+Răspunsul asistentului: {response_text}
+
+Reguli:
+- Returnează DOAR 3 acțiuni, fiecare pe o linie nouă
+- Fiecare acțiune să fie scurtă (max 5-6 cuvinte)
+- Acțiunile să fie relevante pentru conversație și context
+- Să fie în limba română
+- Nu include numerotare sau punctuație la început
+- Să fie acțiuni concrete pe care utilizatorul le poate face în aplicație
+
+Exemple de acțiuni valide:
+- Generează cerere de despăgubire
+- Adaugă o proprietate nouă
+- Vezi raportul de daune
+- Rulează analiză satelitară
+- Calculează pierderea totală"""
+
+        response = model.generate_content(prompt)
+        actions_text = response.text.strip()
+        
+        actions = [line.strip().lstrip('•-123456789. ') for line in actions_text.split('\n') if line.strip()]
+        actions = [a for a in actions if len(a) > 3 and len(a) < 50]
+        
+        if len(actions) >= 3:
+            return actions[:3]
+        
+        return get_fallback_actions(context)
+        
+    except Exception:
+        return get_fallback_actions(context)
+
+
+def get_fallback_actions(context: Optional[dict]) -> list[str]:
+    """Fallback suggestions if AI generation fails."""
+    has_properties = context and context.get('properties')
+    has_damage_data = context and context.get('claim_id')
+    
+    if has_damage_data:
+        return [
+            "Generează cerere de despăgubire",
+            "Vezi detalii despre daune",
+            "Descarcă raportul complet"
+        ]
+    elif has_properties:
+        return [
+            "Rulează analiză satelitară",
+            "Verifică starea proprietăților",
+            "Adaugă o proprietate nouă"
+        ]
+    else:
+        return [
+            "Adaugă prima ta proprietate",
+            "Explorează funcționalitățile",
+            "Contactează suport"
+        ]
 
 
 async def chat_with_agent(
@@ -94,24 +199,19 @@ async def chat_with_agent(
         dict with response, suggested_actions, and optional claim_summary
     """
     try:
-        # Initialize the model
         model = genai.GenerativeModel(
             model_name=MODEL_NAME,
             system_instruction=SYSTEM_PROMPT + build_context_message(context)
         )
         
-        # Start or continue chat
         history = build_conversation_history(conversation_history)
         chat = model.start_chat(history=history)
         
-        # Send message and get response
         response = chat.send_message(message)
         response_text = response.text
         
-        # Generate suggested actions based on context
-        suggested_actions = generate_suggested_actions(message, context)
+        suggested_actions = await generate_ai_suggested_actions(message, response_text, context)
         
-        # Build claim summary if we have context
         claim_summary = None
         if context and context.get("financial_loss"):
             claim_summary = {
@@ -127,50 +227,13 @@ async def chat_with_agent(
         }
         
     except Exception as e:
-        # Fallback response if API fails
         return {
-            "response": f"I apologize, but I'm having trouble connecting right now. Please try again in a moment. Error: {str(e)}",
-            "suggested_actions": ["Try again", "Contact support"],
+            "response": f"Îmi pare rău, am întâmpinat o problemă de conectare. Vă rugăm să încercați din nou. Eroare: {str(e)}",
+            "suggested_actions": ["Încearcă din nou", "Contactează suport"],
             "claim_summary": None
         }
 
 
-def generate_suggested_actions(message: str, context: Optional[dict]) -> list[str]:
-    """Generate contextual action suggestions."""
-    actions = []
-    
-    message_lower = message.lower()
-    
-    if not context:
-        actions.append("Run satellite analysis first")
-        actions.append("Enter your farm coordinates")
-        return actions
-    
-    # Context-aware suggestions
-    if "claim" in message_lower or "file" in message_lower:
-        actions.append("Generate claim PDF")
-        actions.append("Review damage report")
-    
-    if "money" in message_lower or "pay" in message_lower or "much" in message_lower:
-        actions.append("View detailed breakdown")
-        actions.append("Download financial report")
-    
-    if "document" in message_lower or "need" in message_lower:
-        actions.append("Generate Notice of Loss")
-        actions.append("Create claim package")
-    
-    # Default suggestions if none matched
-    if not actions:
-        actions = [
-            "Generate insurance claim",
-            "Ask about payout",
-            "Download damage report"
-        ]
-    
-    return actions[:3]  # Limit to 3 suggestions
-
-
-# Quick test function
 async def test_agent():
     """Test the AI agent with a sample query."""
     from app.data.mocks import MOCK_CHAT_CONTEXT
