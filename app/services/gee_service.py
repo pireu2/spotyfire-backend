@@ -67,13 +67,16 @@ def analyze_farm(farm_geojson: Dict, before_date: str, after_date: str) -> Dict:
     farm_geom = geom.intersection(romania, ee.ErrorMargin(1))
     
     def get_mosaic(date_str):
-        end_date = ee.Date(date_str).advance(10, 'day')
+        end_date = ee.Date(date_str).advance(30, 'day')
         collection = (ee.ImageCollection("COPERNICUS/S1_GRD")
                 .filterBounds(farm_geom)
                 .filterDate(date_str, end_date)
                 .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
                 .filter(ee.Filter.eq('instrumentMode', 'IW'))
                 .select('VV'))
+        
+        count = collection.size().getInfo()
+        print(f"📡 Found {count} Sentinel-1 images for {date_str} (+30 days)")
         
         return collection.mosaic().clip(farm_geom)
 
@@ -83,13 +86,17 @@ def analyze_farm(farm_geojson: Dict, before_date: str, after_date: str) -> Dict:
     before_band_count = before.bandNames().size().getInfo()
     after_band_count = after.bandNames().size().getInfo()
     
+    print(f"🔍 Before bands: {before_band_count}, After bands: {after_band_count}")
+    
     if before_band_count == 0 or after_band_count == 0:
+        error_msg = f"No Sentinel-1 images found for the specified date range. Before: {before_band_count} bands, After: {after_band_count} bands"
+        print(f"❌ {error_msg}")
         return {
             "damage_percent": 0.0,
             "damaged_area_ha": 0.0,
             "total_area_ha": 0.0,
             "overlay_b64": "",
-            "error": f"No Sentinel-1 images found for the specified date range. Before: {before_band_count} bands, After: {after_band_count} bands"
+            "error": error_msg
         }
     
     ratio = after.divide(before)
@@ -119,27 +126,38 @@ def analyze_farm(farm_geojson: Dict, before_date: str, after_date: str) -> Dict:
     
     pct = (d_ha / t_ha * 100.0) if t_ha > 0 else 0.0
     
+    print(f"📊 Analysis Results: Damaged={d_ha:.2f}ha, Total={t_ha:.2f}ha, Percent={pct:.2f}%")
+    
     tile_url = change_mask.visualize(palette=['FF0000']).getThumbURL({
         'region': farm_geom,
         'format': 'png',
         'dimensions': 512
     })
     
+    print(f"🖼️  Tile URL: {tile_url}")
+    
     overlay_b64 = None
     try:
         response = requests.get(tile_url, timeout=30)
         if response.status_code == 200:
             overlay_b64 = base64.b64encode(response.content).decode()
+            print(f"✅ Overlay image fetched: {len(overlay_b64)} chars")
+        else:
+            print(f"❌ Failed to fetch overlay: HTTP {response.status_code}")
     except Exception as e:
-        print(f"Failed to fetch overlay image: {e}")
+        print(f"❌ Failed to fetch overlay image: {e}")
     
-    return {
+    result = {
         "damageAreaHa": round(d_ha, 2),
         "farmAreaHa": round(t_ha, 2),
         "damagePercent": round(pct, 2),
         "tileUrl": tile_url,
         "overlay_b64": overlay_b64
     }
+    
+    print(f"📦 Final result: {result['damageAreaHa']}ha damage, overlay={'✅' if overlay_b64 else '❌'}")
+    
+    return result
 
 async def analyze_property_gee(
     geometry: Dict,
@@ -148,6 +166,18 @@ async def analyze_property_gee(
     cost_per_ha: float = 5000
 ) -> Dict:
     result = analyze_farm(geometry, pre_date, post_date)
+    
+    if 'error' in result:
+        return {
+            "damage_percent": result.get('damage_percent', 0.0),
+            "damaged_area_ha": result.get('damaged_area_ha', 0.0),
+            "total_area_ha": result.get('total_area_ha', 0.0),
+            "estimated_cost": 0.0,
+            "overlay_b64": result.get('overlay_b64', ''),
+            "tile_url": None,
+            "analysis_type": "gee_sar",
+            "error": result['error']
+        }
     
     estimated_cost = result['damageAreaHa'] * cost_per_ha
     

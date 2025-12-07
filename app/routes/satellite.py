@@ -101,6 +101,12 @@ async def analyze_property_damage(
         cost_per_ha=request.cost_per_ha
     )
     
+    if 'error' in analysis_result:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Analysis failed: {analysis_result['error']}"
+        )
+    
     new_analysis = SatelliteAnalysis(
         property_id=property_id,
         analysis_type="sar",
