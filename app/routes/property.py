@@ -3,12 +3,12 @@ Property routes for managing user properties/land parcels.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from typing import List
 import uuid
 
 from app.database import get_db
-from app.db_models import Property, Geometry
+from app.db_models import Property, Geometry, SatelliteAnalysis
 from app.models import PropertyCreate, PropertyUpdate, PropertyResponse, GeometryResponse, CadastralLookupRequest, CadastralLookupResponse
 from app.services.auth import get_current_user, NeonAuthUser
 from app.services.ancpi import fetch_cadastral_data
@@ -183,8 +183,13 @@ async def delete_property(
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
     
+    await db.execute(
+        delete(SatelliteAnalysis).where(SatelliteAnalysis.property_id == uuid.UUID(property_id))
+    )
+    
     geometry_id = prop.geometry_id
     await db.delete(prop)
+    await db.flush()
     
     geometry_result = await db.execute(select(Geometry).where(Geometry.id == geometry_id))
     geometry = geometry_result.scalar_one_or_none()

@@ -159,6 +159,79 @@ def analyze_farm(farm_geojson: Dict, before_date: str, after_date: str) -> Dict:
     
     return result
 
+async def analyze_property_gee_comparison(
+    geometry: Dict,
+    incident_date: str,
+    cost_per_ha: float = 5000
+) -> Dict:
+    from datetime import datetime, timedelta
+    
+    incident_dt = datetime.strptime(incident_date, "%Y-%m-%d")
+    before_date = (incident_dt - timedelta(days=30)).strftime("%Y-%m-%d")
+    after_date = (incident_dt + timedelta(days=30)).strftime("%Y-%m-%d")
+    
+    print(f"📅 Incident Date: {incident_date}")
+    print(f"📅 Before Period: {before_date} to {incident_date} (30 days before)")
+    print(f"📅 After Period: {incident_date} to {after_date} (30 days after)")
+    
+    result_before = analyze_farm(geometry, before_date, incident_date)
+    result_after = analyze_farm(geometry, incident_date, after_date)
+    
+    if 'error' in result_before and 'error' in result_after:
+        return {
+            "damage_percent": 0.0,
+            "damaged_area_ha": 0.0,
+            "total_area_ha": 0.0,
+            "estimated_cost": 0.0,
+            "overlay_before_b64": '',
+            "overlay_after_b64": '',
+            "tile_url": None,
+            "analysis_type": "gee_sar_comparison",
+            "before_date": before_date,
+            "after_date": after_date,
+            "incident_date": incident_date,
+            "error": "No satellite data available for both periods"
+        }
+    
+    if 'error' in result_before:
+        damage_ha = result_after.get('damageAreaHa', 0)
+        total_ha = result_after.get('farmAreaHa', 0)
+        damage_pct = result_after.get('damagePercent', 0)
+        overlay_before_b64 = ''
+        overlay_after_b64 = result_after.get('overlay_b64', '')
+    elif 'error' in result_after:
+        damage_ha = result_before.get('damageAreaHa', 0)
+        total_ha = result_before.get('farmAreaHa', 0)
+        damage_pct = result_before.get('damagePercent', 0)
+        overlay_before_b64 = result_before.get('overlay_b64', '')
+        overlay_after_b64 = ''
+    else:
+        damage_before = result_before.get('damageAreaHa', 0)
+        damage_after = result_after.get('damageAreaHa', 0)
+        damage_ha = abs(damage_after - damage_before)
+        total_ha = result_after.get('farmAreaHa', 0)
+        damage_pct = (damage_ha / total_ha * 100) if total_ha > 0 else 0
+        overlay_before_b64 = result_before.get('overlay_b64', '')
+        overlay_after_b64 = result_after.get('overlay_b64', '')
+    
+    estimated_cost = damage_ha * cost_per_ha
+    
+    print(f"📊 Comparison Results: Damage={damage_ha:.2f}ha, Percent={damage_pct:.2f}%")
+    
+    return {
+        "damage_percent": round(damage_pct, 2),
+        "damaged_area_ha": round(damage_ha, 2),
+        "total_area_ha": round(total_ha, 2),
+        "estimated_cost": estimated_cost,
+        "overlay_before_b64": overlay_before_b64,
+        "overlay_after_b64": overlay_after_b64,
+        "tile_url": result_after.get('tileUrl') if 'error' not in result_after else result_before.get('tileUrl'),
+        "analysis_type": "gee_sar_comparison",
+        "before_date": before_date,
+        "after_date": after_date,
+        "incident_date": incident_date
+    }
+
 async def analyze_property_gee(
     geometry: Dict,
     pre_date: str,

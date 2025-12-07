@@ -17,8 +17,7 @@ router = APIRouter()
 
 
 class AnalyzeRequest(BaseModel):
-    date_range_start: str
-    date_range_end: str
+    incident_date: str
     cost_per_ha: Optional[float] = 5000
 
 
@@ -28,10 +27,15 @@ class AnalysisResponse(BaseModel):
     damaged_area_ha: float
     total_area_ha: float
     estimated_cost: float
+    incident_date: str
+    before_date: str
+    after_date: str
     ndvi_before: Optional[float] = None
     ndvi_after: Optional[float] = None
     burn_severity: Optional[float] = None
-    overlay_b64: str
+    overlay_before_b64: str
+    overlay_after_b64: str
+    ai_insights: Optional[str] = None
     fire_points: Optional[List[dict]] = None
     created_at: datetime
 
@@ -69,6 +73,9 @@ async def analyze_property_damage(
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    from app.services.gee_service import analyze_property_gee_comparison
+    from app.services.ai_agent import generate_report_insights
+    
     result = await db.execute(
         select(Property).where(Property.id == property_id, Property.user_id == user_id)
     )
@@ -94,10 +101,9 @@ async def analyze_property_damage(
         "properties": {}
     }
     
-    analysis_result = await process_sar_damage(
+    analysis_result = await analyze_property_gee_comparison(
         geometry=geometry_geojson,
-        pre_date=request.date_range_start,
-        post_date=request.date_range_end,
+        incident_date=request.incident_date,
         cost_per_ha=request.cost_per_ha
     )
     
@@ -107,11 +113,20 @@ async def analyze_property_damage(
             detail=f"Analysis failed: {analysis_result['error']}"
         )
     
+    property_dict = {
+        "name": property_obj.name,
+        "crop_type": property_obj.crop_type,
+        "center_lat": property_obj.center_lat,
+        "center_lng": property_obj.center_lng
+    }
+    
+    ai_insights = await generate_report_insights(analysis_result, property_dict)
+    
     new_analysis = SatelliteAnalysis(
         property_id=property_id,
-        analysis_type="sar",
-        date_range_start=datetime.strptime(request.date_range_start, "%Y-%m-%d").date(),
-        date_range_end=datetime.strptime(request.date_range_end, "%Y-%m-%d").date(),
+        analysis_type="sar_comparison",
+        date_range_start=datetime.strptime(analysis_result['before_date'], "%Y-%m-%d").date(),
+        date_range_end=datetime.strptime(analysis_result['after_date'], "%Y-%m-%d").date(),
         damage_percent=analysis_result.get("damage_percent"),
         damaged_area_ha=analysis_result.get("damaged_area_ha"),
         total_area_ha=analysis_result.get("total_area_ha"),
@@ -119,7 +134,9 @@ async def analyze_property_damage(
         ndvi_before=analysis_result.get("ndvi_before"),
         ndvi_after=analysis_result.get("ndvi_after"),
         burn_severity=analysis_result.get("burn_severity"),
-        overlay_image_b64=analysis_result.get("overlay_b64"),
+        overlay_image_b64=analysis_result.get("overlay_after_b64"),
+        overlay_before_b64=analysis_result.get("overlay_before_b64"),
+        overlay_after_b64=analysis_result.get("overlay_after_b64"),
         fire_points=None
     )
     
@@ -136,10 +153,15 @@ async def analyze_property_damage(
         damaged_area_ha=new_analysis.damaged_area_ha,
         total_area_ha=new_analysis.total_area_ha,
         estimated_cost=new_analysis.estimated_cost,
+        incident_date=request.incident_date,
+        before_date=analysis_result['before_date'],
+        after_date=analysis_result['after_date'],
         ndvi_before=new_analysis.ndvi_before,
         ndvi_after=new_analysis.ndvi_after,
         burn_severity=new_analysis.burn_severity,
-        overlay_b64=new_analysis.overlay_image_b64,
+        overlay_before_b64=analysis_result.get("overlay_before_b64", ""),
+        overlay_after_b64=analysis_result.get("overlay_after_b64", ""),
+        ai_insights=ai_insights,
         fire_points=None,
         created_at=new_analysis.created_at
     )
@@ -291,6 +313,8 @@ async def generate_analysis_report(
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db)
 ):
+    from app.services.ai_agent import generate_report_insights
+    
     result = await db.execute(
         select(SatelliteAnalysis).where(SatelliteAnalysis.id == analysis_id)
     )
@@ -307,6 +331,9 @@ async def generate_analysis_report(
     if not property_obj:
         raise HTTPException(status_code=404, detail="Unauthorized")
     
+    from datetime import timedelta
+    incident_date = analysis.date_range_end - timedelta(days=7)
+    
     analysis_data = {
         "damage_percent": analysis.damage_percent,
         "damaged_area_ha": analysis.damaged_area_ha,
@@ -315,28 +342,39 @@ async def generate_analysis_report(
         "ndvi_before": analysis.ndvi_before,
         "ndvi_after": analysis.ndvi_after,
         "burn_severity": analysis.burn_severity,
-        "date_range_start": analysis.date_range_start.strftime("%Y-%m-%d"),
-        "date_range_end": analysis.date_range_end.strftime("%Y-%m-%d")
+        "incident_date": incident_date.strftime("%Y-%m-%d"),
+        "before_date": analysis.date_range_start.strftime("%Y-%m-%d"),
+        "after_date": analysis.date_range_end.strftime("%Y-%m-%d")
     }
     
     property_data = {
+        "name": property_obj.name,
         "crop_type": property_obj.crop_type,
         "area_ha": property_obj.area_ha,
         "center_lat": property_obj.center_lat,
         "center_lng": property_obj.center_lng
     }
     
+    ai_insights = await generate_report_insights(analysis_data, property_data)
+    
+    overlay_before_b64 = analysis.overlay_before_b64 or ""
+    overlay_after_b64 = analysis.overlay_after_b64 or ""
+    
     pdf_bytes = generate_satellite_report_pdf(
         property_name=property_obj.name,
         analysis_data=analysis_data,
         property_data=property_data,
-        overlay_b64=analysis.overlay_image_b64
+        overlay_before_b64=overlay_before_b64,
+        overlay_after_b64=overlay_after_b64,
+        ai_insights=ai_insights
     )
     
     filename = f"raport_{property_obj.name.replace(' ', '_')}_{analysis.created_at.strftime('%Y%m%d')}.pdf"
     
+    safe_filename = filename.encode('ascii', 'ignore').decode('ascii')
+    
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
     )

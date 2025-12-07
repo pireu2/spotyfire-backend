@@ -85,8 +85,8 @@ class SatelliteAnalysis(Base):
     __tablename__ = "satellite_analyses"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    property_id = Column(UUID(as_uuid=True), ForeignKey("properties.id"), nullable=False)
-    property = relationship("Property", backref="analyses")
+    property_id = Column(UUID(as_uuid=True), ForeignKey("properties.id", ondelete="CASCADE"), nullable=False)
+    property = relationship("Property", backref="analyses", passive_deletes=True)
     
     analysis_type = Column(String(50), nullable=False)
     date_range_start = Column(Date, nullable=False)
@@ -102,6 +102,8 @@ class SatelliteAnalysis(Base):
     burn_severity = Column(Float, nullable=True)
     
     overlay_image_b64 = Column(Text, nullable=True)
+    overlay_before_b64 = Column(Text, nullable=True)
+    overlay_after_b64 = Column(Text, nullable=True)
     fire_points = Column(JSON, nullable=True)
     
     analysis_metadata = Column(JSON, nullable=True)
@@ -137,8 +139,8 @@ class Alert(Base):
     lng = Column(Float, nullable=True)
     radius_km = Column(Float, nullable=True, default=10.0)
     
-    property_id = Column(UUID(as_uuid=True), ForeignKey("properties.id"), nullable=True)
-    property = relationship("Property", backref="alerts")
+    property_id = Column(UUID(as_uuid=True), ForeignKey("properties.id", ondelete="CASCADE"), nullable=True)
+    property = relationship("Property", backref="alerts", passive_deletes=True)
     
     is_active = Column(Integer, default=1)
     dismissed_at = Column(DateTime, nullable=True)

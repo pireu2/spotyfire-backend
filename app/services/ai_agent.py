@@ -46,6 +46,53 @@ Tell them: "Pentru a genera un raport satelit sau descărca PDF, accesează sec�
 If you don't have damage context provided, ask the user to first run a satellite analysis of their land."""
 
 
+async def generate_report_insights(analysis_data: dict, property_data: dict) -> str:
+    prompt = f"""Based on the following satellite analysis data, generate a professional, detailed insurance report insight in Romanian.
+
+PROPERTY INFORMATION:
+- Name: {property_data.get('name')}
+- Crop Type: {property_data.get('crop_type')}
+- Total Area: {analysis_data.get('total_area_ha')} hectares
+- Location: {property_data.get('center_lat')}, {property_data.get('center_lng')}
+
+INCIDENT INFORMATION:
+- Incident Date: {analysis_data.get('incident_date')}
+- Analysis Period Before: {analysis_data.get('before_date')} to {analysis_data.get('incident_date')}
+- Analysis Period After: {analysis_data.get('incident_date')} to {analysis_data.get('after_date')}
+
+DAMAGE ASSESSMENT:
+- Damaged Area: {analysis_data.get('damaged_area_ha')} hectares
+- Damage Percentage: {analysis_data.get('damage_percent')}%
+- Estimated Cost: {analysis_data.get('estimated_cost')} RON
+- NDVI Before: {analysis_data.get('ndvi_before', 'N/A')}
+- NDVI After: {analysis_data.get('ndvi_after', 'N/A')}
+
+Please provide:
+1. A professional summary of the incident (2-3 paragraphs)
+2. Technical analysis of the satellite data findings
+3. Assessment of the damage severity and impact on the crop
+4. Recommendations for the insurance claim
+5. Environmental and agricultural context
+
+Write in formal Romanian, as this will be included in an official insurance document. Be detailed, professional, and empathetic. The report should be approximately 400-500 words."""
+
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": "You are an expert agricultural insurance adjuster and satellite imagery analyst. Generate detailed, professional insurance reports in Romanian."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1500
+        )
+        
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating AI insights: {e}")
+        return "Analiza AI nu este disponibilă momentan. Vă rugăm să contactați un consultant pentru evaluarea detaliată a daunelor."
+
+
 def build_context_message(context: Optional[dict]) -> str:
     """Build a context message from analysis data."""
     if not context:
