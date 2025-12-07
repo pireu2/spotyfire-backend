@@ -57,3 +57,17 @@ async def init_db():
     if engine:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+
+async def get_db_session():
+    """Get a database session for background tasks"""
+    if not AsyncSessionLocal:
+        raise Exception("Database not configured. Set DATABASE_URL in .env")
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

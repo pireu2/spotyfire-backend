@@ -36,6 +36,13 @@ WHEN CALCULATING PAYOUTS:
 - Always show your calculation
 - Mention that final payout depends on insurance policy terms
 
+NAVIGATION GUIDANCE:
+When users ask about generating reports, satellite analysis, or PDF downloads, inform them that they need to:
+- Go to the "Rapoarte" (Reports) section of the dashboard
+- There they can select a property, choose date ranges, and generate satellite analysis reports
+- PDF reports with damage assessment can be downloaded from that page
+Tell them: "Pentru a genera un raport satelit sau descărca PDF, accesează secțiunea 'Rapoarte' din meniul dashboard-ului. Acolo vei putea selecta terenul, perioada de analiză și genera raportul dorit."
+
 If you don't have damage context provided, ask the user to first run a satellite analysis of their land."""
 
 
