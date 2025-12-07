@@ -136,3 +136,29 @@ class ReportResponse(BaseModel):
     download_url: str
     filename: str
     generated_at: str
+
+
+class AlertResponse(BaseModel):
+    id: str
+    type: str
+    severity: str
+    message: str
+    sector: str
+    lat: Optional[float]
+    lng: Optional[float]
+    radius_km: Optional[float]
+    property_id: Optional[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    distance_km: Optional[float] = None
+    nearest_property: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AlertsListResponse(BaseModel):
+    alerts: List[AlertResponse]
+    total: int
+

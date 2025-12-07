@@ -107,3 +107,41 @@ class SatelliteAnalysis(Base):
     analysis_metadata = Column(JSON, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AlertType(str, enum.Enum):
+    FIRE = "FIRE"
+    FLOOD = "FLOOD"
+    NDVI = "NDVI"
+    WARNING = "WARNING"
+
+
+class AlertSeverity(str, enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    type = Column(Enum(AlertType), nullable=False)
+    severity = Column(Enum(AlertSeverity), nullable=False)
+    
+    message = Column(String(500), nullable=False)
+    sector = Column(String(255), nullable=False)
+    
+    lat = Column(Float, nullable=True)
+    lng = Column(Float, nullable=True)
+    radius_km = Column(Float, nullable=True, default=10.0)
+    
+    property_id = Column(UUID(as_uuid=True), ForeignKey("properties.id"), nullable=True)
+    property = relationship("Property", backref="alerts")
+    
+    is_active = Column(Integer, default=1)
+    dismissed_at = Column(DateTime, nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -25,6 +25,7 @@ from app.db_models import Property
 from app.routes.user import router as user_router
 from app.routes.property import router as property_router
 from app.routes.satellite import router as satellite_router
+from app.routes.alerts import router as alerts_router
 from app.services.auth import get_current_user, NeonAuthUser
 import app.db_models  # noqa: F401 - Import models so SQLAlchemy creates tables
 
@@ -58,6 +59,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(user_router)
 app.include_router(property_router)
 app.include_router(satellite_router, prefix="/api", tags=["satellite"])
+app.include_router(alerts_router)
 
 
 @app.get("/")
@@ -122,6 +124,11 @@ async def chat(
     
     Requires authentication.
     """
+    from app.db_models import SatelliteAnalysis, Alert
+    from datetime import datetime, timedelta
+    from sqlalchemy import and_
+    from app.routes.alerts import calculate_distance_km
+    
     context = request.context or {}
     
     if DEMO_MODE and not request.context:
@@ -146,6 +153,86 @@ async def chat(
             }
             for p in properties
         ]
+        
+        analyses_result = await db.execute(
+            select(SatelliteAnalysis)
+            .join(Property)
+            .where(Property.user_id == user.id)
+            .order_by(SatelliteAnalysis.created_at.desc())
+            .limit(5)
+        )
+        analyses = analyses_result.scalars().all()
+        
+        if analyses:
+            context['analyses'] = [
+                {
+                    'property_name': next((p.name for p in properties if str(p.id) == str(a.property_id)), 'Unknown'),
+                    'date_range_start': a.date_range_start.isoformat() if a.date_range_start else None,
+                    'date_range_end': a.date_range_end.isoformat() if a.date_range_end else None,
+                    'damage_percent': a.damage_percent,
+                    'damaged_area_ha': a.damaged_area_ha,
+                    'estimated_cost': a.estimated_cost,
+                    'ndvi_before': a.ndvi_before,
+                    'ndvi_after': a.ndvi_after,
+                    'analysis_type': a.analysis_type,
+                    'created_at': a.created_at.isoformat() if a.created_at else None,
+                }
+                for a in analyses
+            ]
+        
+        total_reports = len(analyses)
+        month_ago = datetime.utcnow() - timedelta(days=30)
+        reports_this_month = len([a for a in analyses if a.created_at and a.created_at >= month_ago])
+        total_damage_ha = sum(a.damaged_area_ha or 0 for a in analyses)
+        total_loss = sum(a.estimated_cost or 0 for a in analyses)
+        avg_damage = sum(a.damage_percent or 0 for a in analyses) / len(analyses) if analyses else 0
+        
+        context['report_stats'] = {
+            'total_reports': total_reports,
+            'reports_this_month': reports_this_month,
+            'total_damage_ha': total_damage_ha,
+            'total_loss': total_loss,
+            'avg_damage_percent': avg_damage
+        }
+        
+        alerts_result = await db.execute(
+            select(Alert).where(Alert.is_active == 1).order_by(Alert.created_at.desc())
+        )
+        all_alerts = alerts_result.scalars().all()
+        
+        nearby_alerts = []
+        for alert in all_alerts:
+            if alert.lat is None or alert.lng is None:
+                continue
+            
+            min_distance = None
+            closest_property = None
+            
+            for prop in properties:
+                distance = calculate_distance_km(prop.center_lat, prop.center_lng, alert.lat, alert.lng)
+                if min_distance is None or distance < min_distance:
+                    min_distance = distance
+                    closest_property = prop
+            
+            if min_distance is not None and min_distance <= 100:
+                nearby_alerts.append({
+                    'id': str(alert.id),
+                    'type': alert.type.value,
+                    'severity': alert.severity.value,
+                    'message': alert.message,
+                    'sector': alert.sector,
+                    'lat': alert.lat,
+                    'lng': alert.lng,
+                    'radius_km': alert.radius_km,
+                    'distance_km': round(min_distance, 1),
+                    'nearest_property': closest_property.name,
+                    'created_at': alert.created_at.isoformat() if alert.created_at else None
+                })
+        
+        nearby_alerts.sort(key=lambda x: x['distance_km'])
+        
+        if nearby_alerts:
+            context['alerts'] = nearby_alerts[:10]
     
     result = await chat_with_agent(
         message=request.message,

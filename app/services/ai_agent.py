@@ -1,17 +1,16 @@
 """
-AI Agent Service using Google Generative AI (Gemini).
+AI Agent Service using Groq.
 Handles chat interactions and claim assistance.
 """
 import os
-import google.generativeai as genai
+from groq import Groq
 from dotenv import load_dotenv
 from typing import Optional
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-
-MODEL_NAME = "gemini-2.0-flash"
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+MODEL_NAME = "llama-3.3-70b-versatile"
 
 SYSTEM_PROMPT = """You are SpotyBot, an expert Agricultural Insurance Claims Adjuster AI assistant created by SpotyFire.
 
@@ -63,6 +62,23 @@ Property {i}: {prop.get('name', 'Unnamed')}
 - Risk Score: {prop.get('risk_score', 0)}/100
 - Last Analyzed: {prop.get('last_analysed_at') or 'Never'}""")
     
+    if context.get('analyses'):
+        analyses = context.get('analyses', [])
+        if analyses:
+            context_parts.append("\nRECENT SATELLITE ANALYSES:")
+            for i, analysis in enumerate(analyses, 1):
+                context_parts.append(f"""
+Analysis {i}:
+- Property: {analysis.get('property_name', 'N/A')}
+- Date Range: {analysis.get('date_range_start')} to {analysis.get('date_range_end')}
+- Damage: {analysis.get('damage_percent', 0):.2f}%
+- Affected Area: {analysis.get('damaged_area_ha', 0):.2f} hectares
+- Estimated Cost: €{analysis.get('estimated_cost', 0):,.2f}
+- NDVI Before: {analysis.get('ndvi_before', 'N/A')}
+- NDVI After: {analysis.get('ndvi_after', 'N/A')}
+- Analysis Type: {analysis.get('analysis_type', 'SAR')}
+- Created: {analysis.get('created_at', 'N/A')}""")
+    
     if context.get('claim_id'):
         context_parts.append(f"""
 CURRENT DAMAGE ANALYSIS DATA:
@@ -77,9 +93,63 @@ CURRENT DAMAGE ANALYSIS DATA:
 - Disaster Type: {context.get('disaster_type', 'N/A')}
 - Analysis Date: {context.get('analysis_date', 'N/A')}""")
     
+    if context.get('report_stats'):
+        stats = context.get('report_stats', {})
+        context_parts.append(f"""
+REPORT STATISTICS:
+- Total Reports Generated: {stats.get('total_reports', 0)}
+- Reports This Month: {stats.get('reports_this_month', 0)}
+- Total Damage Detected: {stats.get('total_damage_ha', 0):.2f} hectares
+- Total Estimated Loss: €{stats.get('total_loss', 0):,.2f}
+- Average Damage: {stats.get('avg_damage_percent', 0):.2f}%""")
+    
+    if context.get('alerts'):
+        alerts = context.get('alerts', [])
+        if alerts:
+            context_parts.append("\nACTIVE DISASTER ALERTS:")
+            for i, alert in enumerate(alerts, 1):
+                distance_info = ""
+                if alert.get('distance_km') is not None and alert.get('nearest_property'):
+                    distance_info = f" ({alert['distance_km']:.1f}km from {alert['nearest_property']})"
+                
+                severity_emoji = {
+                    'low': '🟡',
+                    'medium': '🟠',
+                    'high': '🔴',
+                    'critical': '⚫'
+                }.get(alert.get('severity', 'low'), '')
+                
+                type_emoji = {
+                    'fire': '🔥',
+                    'flood': '💧',
+                    'ndvi': '🌿',
+                    'warning': '⚠️'
+                }.get(alert.get('type', 'warning'), '')
+                
+                context_parts.append(f"""
+Alert {i}: {type_emoji} {alert.get('message')}{distance_info}
+- Type: {alert.get('type', 'N/A').upper()}
+- Severity: {severity_emoji} {alert.get('severity', 'N/A').upper()}
+- Location: {alert.get('sector', 'N/A')}
+- Coordinates: {alert.get('lat', 'N/A')}, {alert.get('lng', 'N/A')}
+- Impact Radius: {alert.get('radius_km', 0):.1f}km
+- Created: {alert.get('created_at', 'N/A')}""")
+    
     if context_parts:
-        context_parts.append("\nUse this data to provide accurate, personalized assistance to the farmer.")
+        context_parts.append("\nAPPLICATION CAPABILITIES:")
+        context_parts.append("""
+- Satellite Analysis: Generate damage reports using Sentinel-1 SAR imagery
+- PDF Reports: Download professional reports with satellite overlays
+- Property Management: Track multiple properties and their damage history
+- NDVI Monitoring: Vegetation health tracking before and after disasters
+- Real-time Alerts: Get notified when disasters are detected near your properties
+- Proximity Analysis: See how far disasters are from your land
+- Insurance Claims: AI-assisted claim drafting and documentation
+
+Use this data to provide accurate, personalized assistance to the farmer. When the user asks about disasters near their property, use the ACTIVE DISASTER ALERTS section which includes distance calculations.""")
         return "\n".join(context_parts)
+    
+    return ""
     
     return ""
 
@@ -106,7 +176,6 @@ async def generate_ai_suggested_actions(
 ) -> list[str]:
     """Generate contextual action suggestions using AI."""
     try:
-        model = genai.GenerativeModel(model_name=MODEL_NAME)
         
         has_properties = context and context.get('properties')
         has_damage_data = context and context.get('claim_id')
@@ -142,8 +211,13 @@ Exemple de acțiuni valide:
 - Rulează analiză satelitară
 - Calculează pierderea totală"""
 
-        response = model.generate_content(prompt)
-        actions_text = response.text.strip()
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=200
+        )
+        actions_text = response.choices[0].message.content.strip()
         
         actions = [line.strip().lstrip('•-123456789. ') for line in actions_text.split('\n') if line.strip()]
         actions = [a for a in actions if len(a) > 3 and len(a) < 50]
@@ -199,16 +273,25 @@ async def chat_with_agent(
         dict with response, suggested_actions, and optional claim_summary
     """
     try:
-        model = genai.GenerativeModel(
-            model_name=MODEL_NAME,
-            system_instruction=SYSTEM_PROMPT + build_context_message(context)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT + build_context_message(context)}]
+        
+        if conversation_history:
+            for msg in conversation_history:
+                role = "assistant" if msg.get("role") == "model" else "user"
+                messages.append({
+                    "role": role,
+                    "content": msg.get("content", "")
+                })
+        
+        messages.append({"role": "user", "content": message})
+        
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=1000
         )
-        
-        history = build_conversation_history(conversation_history)
-        chat = model.start_chat(history=history)
-        
-        response = chat.send_message(message)
-        response_text = response.text
+        response_text = response.choices[0].message.content
         
         suggested_actions = await generate_ai_suggested_actions(message, response_text, context)
         

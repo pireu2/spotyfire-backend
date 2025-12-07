@@ -68,17 +68,29 @@ def analyze_farm(farm_geojson: Dict, before_date: str, after_date: str) -> Dict:
     
     def get_mosaic(date_str):
         end_date = ee.Date(date_str).advance(10, 'day')
-        return (ee.ImageCollection("COPERNICUS/S1_GRD")
+        collection = (ee.ImageCollection("COPERNICUS/S1_GRD")
                 .filterBounds(farm_geom)
                 .filterDate(date_str, end_date)
                 .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV'))
                 .filter(ee.Filter.eq('instrumentMode', 'IW'))
-                .select('VV')
-                .mosaic()
-                .clip(farm_geom))
+                .select('VV'))
+        
+        return collection.mosaic().clip(farm_geom)
 
     before = get_mosaic(before_date)
     after = get_mosaic(after_date)
+    
+    before_band_count = before.bandNames().size().getInfo()
+    after_band_count = after.bandNames().size().getInfo()
+    
+    if before_band_count == 0 or after_band_count == 0:
+        return {
+            "damage_percent": 0.0,
+            "damaged_area_ha": 0.0,
+            "total_area_ha": 0.0,
+            "overlay_b64": "",
+            "error": f"No Sentinel-1 images found for the specified date range. Before: {before_band_count} bands, After: {after_band_count} bands"
+        }
     
     ratio = after.divide(before)
     change_mask = ratio.gt(1.3).selfMask()
